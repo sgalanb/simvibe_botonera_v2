@@ -35,23 +35,26 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(simvibe_botonera_v2 simvibe_botonera_v2.cpp )
+add_executable(simvibe_botonera_v2 main.cpp )
 
 pico_set_program_name(simvibe_botonera_v2 "simvibe_botonera_v2")
 pico_set_program_version(simvibe_botonera_v2 "0.1")
 
 # Modify the below lines to enable/disable output over UART/USB
 pico_enable_stdio_uart(simvibe_botonera_v2 0)
-pico_enable_stdio_usb(simvibe_botonera_v2 1)
+pico_enable_stdio_usb(simvibe_botonera_v2 0)
 
-# Add the standard library to the build
-target_link_libraries(simvibe_botonera_v2
-        pico_stdlib)
+# Add the sources to the build
+target_sources(simvibe_botonera_v2 PUBLIC
+        ${CMAKE_CURRENT_LIST_DIR}/main.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/usb_descriptors.cpp
+        )
 
 # Add the standard include files to the build
-target_include_directories(simvibe_botonera_v2 PRIVATE
+target_include_directories(simvibe_botonera_v2 PUBLIC
   ${CMAKE_CURRENT_LIST_DIR}
 )
 
-pico_add_extra_outputs(simvibe_botonera_v2)
+target_link_libraries(simvibe_botonera_v2 PUBLIC pico_stdlib pico_unique_id tinyusb_device tinyusb_board)
 
+pico_add_extra_outputs(simvibe_botonera_v2)
