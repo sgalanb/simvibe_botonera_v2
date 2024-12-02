@@ -70,25 +70,93 @@ void tud_resume_cb(void)
 //--------------------------------------------------------------------+
 
 #define NUM_BUTTONS 6
+#define NUM_ENCODER_BUTTONS 5
+#define NUM_ENCODERS 5
+
 const uint8_t button_pins[NUM_BUTTONS] = {15, 14, 13, 12, 11, 10};
+const uint8_t encoder_buttons_pins[NUM_ENCODER_BUTTONS] = {7, 4, 1, 26, 20};
+
+const uint8_t encoder_a_pins[NUM_ENCODERS] = {9, 6, 3, 28, 22};
+const uint8_t encoder_b_pins[NUM_ENCODERS] = {8, 5, 2, 27, 21};
+
+static uint8_t prev_encoder_states[NUM_ENCODERS] = {0};
 
 void gpio_init_buttons(void) {
-  for (int i = 0; i < NUM_BUTTONS; i++) {
-    gpio_init(button_pins[i]);
-    gpio_set_dir(button_pins[i], GPIO_IN);
-    gpio_pull_up(button_pins[i]); // Enable internal pull-up resistor
-  }
+    // Initialize regular buttons
+    for (int i = 0; i < NUM_BUTTONS; i++) {
+        gpio_init(button_pins[i]);
+        gpio_set_dir(button_pins[i], GPIO_IN);
+        gpio_pull_up(button_pins[i]); // Enable internal pull-up resistor
+    }
+    
+    // Initialize encoder buttons
+    for (int i = 0; i < NUM_ENCODER_BUTTONS; i++) {
+        gpio_init(encoder_buttons_pins[i]);
+        gpio_set_dir(encoder_buttons_pins[i], GPIO_IN);
+        gpio_pull_up(encoder_buttons_pins[i]); // Enable internal pull-up resistor
+    }
+
+    // New: Initialize encoder pins
+    for (int i = 0; i < NUM_ENCODERS; i++) {
+        // Initialize A pins
+        gpio_init(encoder_a_pins[i]);
+        gpio_set_dir(encoder_a_pins[i], GPIO_IN);
+        gpio_pull_up(encoder_a_pins[i]);
+        
+        // Initialize B pins
+        gpio_init(encoder_b_pins[i]);
+        gpio_set_dir(encoder_b_pins[i], GPIO_IN);
+        gpio_pull_up(encoder_b_pins[i]);
+    }
 }
 
 uint32_t read_buttons(void) {
-  uint32_t buttons_state = 0;
-  for (int i = 0; i < NUM_BUTTONS; i++) {
-    if (!gpio_get(button_pins[i])) { // Button pressed when GPIO reads LOW (due to pull-up)
-      buttons_state |= (1 << i); // Set the corresponding bit
+    uint32_t buttons_state = 0;
+    
+    // Read regular buttons (bits 0-5)
+    for (int i = 0; i < NUM_BUTTONS; i++) {
+        if (!gpio_get(button_pins[i])) { // Button pressed when GPIO reads LOW (due to pull-up)
+            buttons_state |= (1 << i); // Set the corresponding bit
+        }
     }
-  }
-  
-  return buttons_state;
+    
+    // Read encoder buttons (bits 6-10)
+    for (int i = 0; i < NUM_ENCODER_BUTTONS; i++) {
+        if (!gpio_get(encoder_buttons_pins[i])) { // Button pressed when GPIO reads LOW (due to pull-up)
+            buttons_state |= (1 << (i + NUM_BUTTONS)); // Set the corresponding bit after regular buttons
+        }
+    }
+    
+    // New: Read encoders (bits 11-20)
+    for (int i = 0; i < NUM_ENCODERS; i++) {
+        uint8_t a_state = !gpio_get(encoder_a_pins[i]);  // Inverted due to pull-up
+        uint8_t b_state = !gpio_get(encoder_b_pins[i]);  // Inverted due to pull-up
+        uint8_t current_state = (a_state << 1) | b_state;
+        uint8_t prev_state = prev_encoder_states[i];
+        
+        // Check rotation direction based on state change
+        if (prev_state != current_state) {
+            // Calculate rotation direction
+            if ((prev_state == 0b00 && current_state == 0b01) ||
+                (prev_state == 0b01 && current_state == 0b11) ||
+                (prev_state == 0b11 && current_state == 0b10) ||
+                (prev_state == 0b10 && current_state == 0b00)) {
+                // Clockwise rotation - set first encoder button
+                buttons_state |= (1 << (11 + i * 2));
+            }
+            else if ((prev_state == 0b00 && current_state == 0b10) ||
+                     (prev_state == 0b10 && current_state == 0b11) ||
+                     (prev_state == 0b11 && current_state == 0b01) ||
+                     (prev_state == 0b01 && current_state == 0b00)) {
+                // Counter-clockwise rotation - set second encoder button
+                buttons_state |= (1 << (12 + i * 2));
+            }
+            
+            prev_encoder_states[i] = current_state;
+        }
+    }
+    
+    return buttons_state;
 }
 
 struct gamepad_report_custom_t {
@@ -97,32 +165,19 @@ struct gamepad_report_custom_t {
 
 static void send_hid_report(uint8_t report_id, uint32_t btn)
 {
-  // Skip if HID is not ready yet
-  if (!tud_hid_ready()) {
-    board_led_write(false);  // LED off if HID not ready
-    return;
-  }
-  // Only handle gamepad report
-  if (report_id != REPORT_ID_GAMEPAD) return;
+    // Skip if HID is not ready yet
+    if (!tud_hid_ready()) {
+        board_led_write(false);  // LED off if HID not ready
+        return;
+    }
+    // Only handle gamepad report
+    if (report_id != REPORT_ID_GAMEPAD) return;
  
-  gamepad_report_custom_t report = {1}; // Initialize all fields to 0
-  report.buttons = btn & 0x3F; // Only use first 6 bits, rest will be 0
+    gamepad_report_custom_t report = {0};
+    report.buttons = btn & 0x7FFFFF;  // Use first 23 bits (0x7FFFFF = 23 bits set to 1)
 
-  // Send the HID report
-  bool success = tud_hid_report(report_id, &report, sizeof(report));
-
-  // Visual feedback for report sending
-  if (success) {
-    // Quick double blink for successful send
-    board_led_write(true);
-    board_delay(50);
-    board_led_write(false);
-  } else {
-    // Slow blink for failed send
-    board_led_write(true);
-    board_delay(2000);
-    board_led_write(false);
-  }
+    // Send the HID report
+    bool success = tud_hid_report(report_id, &report, sizeof(report));
 }
 
 void hid_task(void)
@@ -156,7 +211,7 @@ void hid_task(void)
 // Invoked when received GET_REPORT control request
 // Application must fill buffer report's content and return its length.
 // Return zero will cause the stack to STALL request
-// This do matter because it is used to send data to the host
+// This matters because it is used to send data to the host
 uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen)
 {
     (void) instance;
@@ -165,10 +220,10 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_t
     // Only handle gamepad report
     if (report_id != REPORT_ID_GAMEPAD) return 0;
     
-    // Get current button states (only first 6 buttons)
-    uint32_t buttons_states = read_buttons() & 0x3F; // Mask to only keep first 6 bits
+    // Get current button states (11 buttons total)
+    uint32_t buttons_states = read_buttons() & 0x7FF; // Mask to keep first 11 bits
     
-    gamepad_report_custom_t report = {1}; // Initialize all fields to 0
+    gamepad_report_custom_t report = {0}; // Initialize all fields to 0
     report.buttons = buttons_states; // The remaining bits will be 0
     
     // Copy to the buffer
