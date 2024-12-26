@@ -15,8 +15,8 @@ uint8_t const hid_report_descriptor[] = {
     0x29, 0x15,  // Usage Maximum (Button 21)
     0x15, 0x00,  // Logical Minimum (0)
     0x25, 0x01,  // Logical Maximum (1)
-    0x95, 0x15,  // Report Count (21)
     0x75, 0x01,  // Report Size (1)
+    0x95, 0x15,  // Report Count (21)
     0x81, 0x02,  // Input (Data,Var,Abs)
     
     // 3 bits padding to align with byte boundary (21 + 3 = 24 bits = 3 bytes)
@@ -39,8 +39,8 @@ uint16_t tud_hid_descriptor_report_size(void) {
 }
 
 // Device identification
-#define USB_VID   0xCafe    // Vendor ID
-#define USB_PID   0x4000    // Product ID
+#define USB_VID   0x2E8A    // Vendor ID
+#define USB_PID   0x000A    // Product ID
 #define USB_BCD   0x0200    // USB specification version
 
 // Device descriptor

@@ -159,25 +159,28 @@ uint32_t read_buttons(void) {
     return buttons_state;
 }
 
-struct gamepad_report_custom_t {
-    uint32_t buttons;
+struct __attribute__((packed)) gamepad_report_custom_t {
+    uint8_t reportId;   // Report ID
+    uint8_t buttons[3]; // 3 bytes for 21 buttons + 3 padding bits
 };
 
 static void send_hid_report(uint8_t report_id, uint32_t btn)
 {
-    // Skip if HID is not ready yet
     if (!tud_hid_ready()) {
-        board_led_write(false);  // LED off if HID not ready
         return;
     }
-    // Only handle gamepad report
     if (report_id != REPORT_ID_GAMEPAD) return;
  
     gamepad_report_custom_t report = {0};
-    report.buttons = btn & 0x7FFFFF;  // Use first 23 bits (0x7FFFFF = 23 bits set to 1)
+    report.reportId = report_id;
+    
+    // Split the 24 bits into 3 bytes
+    report.buttons[0] = (btn & 0xFF);         // First 8 bits
+    report.buttons[1] = (btn >> 8) & 0xFF;    // Next 8 bits
+    report.buttons[2] = (btn >> 16) & 0xFF;   // Last 8 bits
 
-    // Send the HID report
-    bool success = tud_hid_report(report_id, &report, sizeof(report));
+    // Send the report
+    tud_hid_report(report_id, &report.buttons[0], sizeof(report.buttons));
 }
 
 void hid_task(void)
@@ -214,23 +217,15 @@ void hid_task(void)
 // This matters because it is used to send data to the host
 uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen)
 {
-    (void) instance;
-    (void) report_type;
-    
-    // Only handle gamepad report
     if (report_id != REPORT_ID_GAMEPAD) return 0;
     
-    // Get current button states (11 buttons total)
-    uint32_t buttons_states = read_buttons() & 0x7FF; // Mask to keep first 11 bits
+    uint32_t buttons_states = read_buttons() & 0x1FFFFF; // Mask to keep first 21 bits
     
-    gamepad_report_custom_t report = {0}; // Initialize all fields to 0
-    report.buttons = buttons_states; // The remaining bits will be 0
+    buffer[0] = (buttons_states & 0xFF);
+    buffer[1] = (buttons_states >> 8) & 0xFF;
+    buffer[2] = (buttons_states >> 16) & 0xFF;
     
-    // Copy to the buffer
-    uint16_t length = MIN(reqlen, sizeof(report));
-    memcpy(buffer, &report, length);
-
-    return length;
+    return 3; // Return the number of bytes in the report
 }
 
 
